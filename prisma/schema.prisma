@@ -5,14 +5,15 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-js" 
+  engineType = "library"
 }
 
 
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+ 
 }
 model FlashcardSet {
   id        Int         @id @default(autoincrement())
@@ -20,6 +21,8 @@ model FlashcardSet {
   description String    @default(" ")
   createdAt DateTime    @default(now())
   flashcards Flashcard[]
+  classId     String  
+  Class       Class @relation(fields: [classId], references: [id])
 }
 
 model Flashcard {
@@ -28,4 +31,21 @@ model Flashcard {
   answer         String
   flashcardSetId Int
   flashcardSet   FlashcardSet @relation(fields: [flashcardSetId], references: [id])
+}
+//classes
+model User {
+  id      String  @id @default(uuid())
+  name     String 
+  email    String  @unique
+  password  String
+  classes   Class[]
+}
+//students
+model Class{
+  id String      @id @default(uuid())
+  name String
+  userId String
+  user User?      @relation(fields: [userId], references: [id])
+  set FlashcardSet[]
+
 }

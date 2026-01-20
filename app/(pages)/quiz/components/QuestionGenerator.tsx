@@ -15,12 +15,12 @@ interface SetData {
   id: number;
 }
      useEffect(() => {
-        fetchData();
+        fetchData();  ``
       }, []);
 
     const fetchData = async () => {
       try {
-        const response = await fetch('http://localhost:3000/sets');
+        const response = await fetch('http://localhost:3000/sets/e5e548d9-813f-49cb-b421-5a15a57887bf');
         if (!response.ok) {
           throw new Error('Network response was not ok.');
         }

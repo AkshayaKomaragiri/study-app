@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider   = "prisma-client-js"
+  output     = "./generated/main"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model FlashcardSet {
+  id          Int         @id @default(autoincrement())
+  title       String
+  description String      @default(" ")
+  createdAt   DateTime    @default(now())
+  flashcards  Flashcard[]
+  classId     String
+  Class       Class       @relation(fields: [classId], references: [id])
+}
+
+model Flashcard {
+  id             Int          @id @default(autoincrement())
+  question       String
+  answer         String
+  flashcardSetId Int
+  flashcardSet   FlashcardSet @relation(fields: [flashcardSetId], references: [id])
+}
+
+model User {
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique
+  password String
+}
+
+model Class {
+  id   String         @id @default(uuid())
+  name String
+  set  FlashcardSet[]
+}

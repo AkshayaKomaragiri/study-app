@@ -14,6 +14,7 @@ import DialogContent from '@mui/joy/DialogContent';
 import Stack from '@mui/joy/Stack';
 import Add from '@mui/icons-material/Add';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 interface SetData {
   title: string;
@@ -29,13 +30,28 @@ export default function AddSet() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const searchParams = useSearchParams();
+  const classId = searchParams?.get('classId') || '';
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (!classId) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
+    fetchData(classId);
+  }, [classId]);
+
+  const fetchData = async (classIdParam?: string) => {
+    const id = classIdParam ?? classId;
+    if (!id) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch('http://localhost:3000/sets');
+      const response = await fetch(`http://localhost:3000/sets/${id}`);
       if (!response.ok) {
         throw new Error('Network response was not ok.');
       }
@@ -50,7 +66,7 @@ export default function AddSet() {
 
   const handleSubmit = async () => {
     try {
-      const response = await fetch('http://localhost:3000/post', {
+      const response = await fetch(`http://localhost:3000/post/${classId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -58,12 +74,11 @@ export default function AddSet() {
         body: JSON.stringify({ title, description }),
       });
       const result = await response.json();
-      console.log(result);
       if (response.ok) {
         setOpen(false);
         setTitle('');
         setDescription('');
-        fetchData(); 
+        fetchData(classId); 
       } else {
         setError(result.message || 'Error adding set');
       }
@@ -72,18 +87,22 @@ export default function AddSet() {
     }
   };
 
-  const handleDelete = async (setID) => {
+  const handleDelete = async (setID: number) => {
     try {
-      fetch('http://localhost:3000/delete', {
+      const response = await fetch('http://localhost:3000/delete', {
         method: "DELETE",
         headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({id: setID})
-      })
-      
-      .then((response) => response.json())
-    fetchData();
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ id: setID })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        setError(result.message || 'Error deleting set');
+      } else {
+        fetchData(classId);
+      }
     } catch (error) {
       setError('Error deleting data');
     }
@@ -129,7 +148,7 @@ export default function AddSet() {
 
       <div>
         {loading ? (
-          <p>Loading...</p>
+           <svg className="mr-3 size-5 animate-spin ..." viewBox="0 0 24 24"></svg>
         ) : error ? (
           <p>Error: {error}</p>
         ) : (
