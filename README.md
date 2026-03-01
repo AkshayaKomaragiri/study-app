@@ -2,7 +2,10 @@
 
 A study assistant application for organizing classes, flashcard sets, and learning with AI-powered quizzes.
 
-## Flow 
+## Images
+![alt text](image-1.png) 
+![alt text](image-2.png)
+![alt text](image-3.png)
 ![alt text](image.png)
 
 
