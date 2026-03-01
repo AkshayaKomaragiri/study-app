@@ -6,6 +6,9 @@ import Add from '@mui/icons-material/Add';
 import { useSearchParams } from 'next/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronRight, faChevronLeft, faLayerGroup, faBrain, faMicrochip } from '@fortawesome/free-solid-svg-icons';
+import { Progress } from "@/components/ui/progress"
+import Lottie from 'lottie-react';
+import confetti from '@/app/assets/confetti.json';
 
 interface FlashCardData {
   question: string;
@@ -23,29 +26,29 @@ export default function FlashcardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [progress, setProgress] = useState(0)
   const [data, setData] = useState<FlashCardData[]>([]);
-  const [selectedModel, setSelectedModel] = useState('llama3.2:1b');
   const [currentIdx, setCurrentIdx] = useState(0);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
-  const [quizIdx, setQuizIdx] = useState(0);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [aiFeedback, setAiFeedback] = useState('');
-  const [isChecking, setIsChecking] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [options, setOptions] = useState<string[]>([]);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+  const [numberCorrect, setNumberCorrect] = useState(0);
+  const [numberIncorrect, setNumberIncorrect] = useState(0);
+  const [length, setLength] = useState(0);
 
   const searchParams = useSearchParams();
   const title = searchParams.get('title');
   const setID = Number(searchParams.get('setID'));
 
-  // PRE-FETCHING LOGIC: Generate quiz as soon as data is available
+ 
   useEffect(() => {
     const init = async () => {
       const flashcards = await fetchData();
-      if (flashcards && flashcards.length > 0) {
-        generateQuiz(flashcards);
-      }
+      setData(flashcards)
+      
     };
     init();
   }, []);
@@ -65,74 +68,45 @@ export default function FlashcardPage() {
     }
   };
 
-  const generateQuiz = async (cardsToUse = filteredFlashcards) => {
-    if (cardsToUse.length === 0 || isGenerating) return;
-    setIsGenerating(true);
-    console.log("Ollama: Starting Question Generation...");
 
-    const cardsContext = cardsToUse
-      .map((f, i) => `Card ${i + 1}: Q: ${f.question} | A: ${f.answer}`)
-      .join('\n');
 
-    const prompt = `Act as a strict exam creator. Based on these cards:\n${cardsContext}\nGenerate 25 questions. Format: Q: [Question] A: [Answer] ---`;
-
-    try {
-      const response = await fetch('http://localhost:3000/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          model: selectedModel, 
-          messages: [{ role: 'user', content: prompt }],
-          stream: false 
-        }),
-      });
-
-      const result = await response.json();
-      console.log("Ollama Thinking Result:", result.response); // VISIBLE IN CONSOLE
-      parseQuestions(result.response);
-    } catch (err) {
-      setError("Failed to generate quiz");
-    } finally {
-      setIsGenerating(false);
+  const shuffleOptions = (arr: string[]) => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
     }
+    return a;
   };
 
-  const checkAnswerWithAI = async () => {
-    if (!userAnswer.trim()) return;
-    setIsChecking(true);
-    const currentQ = quizQuestions[quizIdx];
-
-    // STRICT PROMPT: Prevent AI from being "too nice"
-    const prompt = `STRICT GRADING SYSTEM.
-    Question: ${currentQ.question}
-    Reference Correct Answer: ${currentQ.correctAnswer}
-    User's Attempt: ${userAnswer}
-    
-    If the user's attempt is wrong or nonsensical, you MUST say "Incorrect". 
-    Only say "Correct" if the core meaning matches.
-    Only say "Close" if they are 90% there but missed a tiny detail.
-    Explain the difference.`;
-
+  async function loadOptions() {
+    if (filteredFlashcards.length === 0) return;
+    const card = filteredFlashcards[currentIdx];
+    setIsLoadingOptions(true);
+    setFeedback(null);
+    setSelectedOption(null);
     try {
-      console.log("Ollama: Checking Answer...");
-      const resp = await fetch('http://localhost:3000/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          model: selectedModel, 
-          messages: [{ role: 'user', content: prompt }],
-          stream: false 
-        }),
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ question: card.question, answer: card.answer }),
       });
-      const result = await resp.json();
-      console.log("Ollama Grading Logic:", result.response); // VISIBLE IN CONSOLE
-      setAiFeedback(result.response);
-    } catch (e) {
-      setAiFeedback("Error checking answer.");
+      
+      
+      const data = await response.json();
+     
+      const distractors: string[] = data.distractors || [];
+      const correctAnswer = card.answer;
+      const allOptions = shuffleOptions([correctAnswer, ...distractors]);
+      setOptions(allOptions);
+    } catch (error) {
+      setError("Error loading options");
     } finally {
-      setIsChecking(false);
+      setIsLoadingOptions(false);
     }
-  };
+  }
 
   const handleSubmit = async () => {
     try {
@@ -154,24 +128,47 @@ export default function FlashcardPage() {
 
   const filteredFlashcards = data.filter(f => f.flashcardSetId === setID);
 
-  const parseQuestions = (text: string) => {
-    const pairs = text.split('---');
-    const parsed: QuizQuestion[] = pairs.map(p => {
-      const qMatch = p.match(/Q: (.*)/);
-      const aMatch = p.match(/A: (.*)/);
-      return {
-        question: qMatch ? qMatch[1].trim() : '',
-        correctAnswer: aMatch ? aMatch[1].trim() : ''
-      };
-    }).filter(q => q.question !== '');
-    setQuizQuestions(parsed);
+  useEffect(() => {
+    if (view === 'learn' && filteredFlashcards.length > 0) {
+      loadOptions();
+    }
+  }, [view, currentIdx, filteredFlashcards.length]);
+
+  const correct = () => {
+    const step = (1 / filteredFlashcards.length) * 100;
+  
+    setProgress((p) => {
+      const newProgress = p + step;
+      return newProgress >= 100 ? 100 : newProgress;
+    });
+  
+    setCurrentIdx((i) => i + 1);
   };
 
-  const nextQuestion = () => {
-    setUserAnswer('');
-    setAiFeedback('');
-    setQuizIdx(prev => prev + 1);
-  };
+  const shuffle = (array: FlashCardData[]) => { 
+  for (let i = array.length - 1; i > 0; i--) { 
+    const j = Math.floor(Math.random() * (i + 1)); 
+    [array[i], array[j]] = [array[j], array[i]]; 
+  } 
+  return array; 
+}; 
+
+  const learnMode = () => {
+    setView("learn");
+    setProgress(0);
+    setCurrentIdx(0);
+    shuffle(data); 
+  }
+
+  const processQuestion = (array: FlashCardData[]) => {
+    for (let i = array.length - 1; i > 0; i--) { 
+    const options = generateOptions(array[i].question, array[i].answer) 
+    return options
+  } 
+  }
+
+  const correctAnswer = filteredFlashcards[currentIdx]?.answer;
+  
 
   return (
     <React.Fragment>
@@ -184,7 +181,7 @@ export default function FlashcardPage() {
             </Stack>
           </Button>
           <Divider sx={{ bgcolor: 'white', width: '60%', opacity: 0.5 }} />
-          <Button variant="plain" onClick={() => setView('learn')} sx={{ color: view === 'learn' ? 'white' : 'rgba(255,255,255,0.5)' }}>
+          <Button variant="plain" onClick={learnMode} sx={{ color: view === 'learn' ? 'white' : 'rgba(255,255,255,0.5)' }}>
             <Stack alignItems="center">
               <FontAwesomeIcon icon={faBrain} />
               <Typography level="body-xs" textColor="inherit">Learn</Typography>
@@ -210,49 +207,103 @@ export default function FlashcardPage() {
                 </Stack>
               ) : <Typography textColor="white">No cards yet.</Typography>}
               <Typography sx={{ mt: 4, color: 'rgba(255,255,255,0.6)' }}>{currentIdx + 1} / {filteredFlashcards.length}</Typography>
+            
             </>
           ) : (
-            <Box sx={{ maxWidth: 600, width: '100%', textAlign: 'center' }}>
-              <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
-                <Typography textColor="white" startDecorator={<FontAwesomeIcon icon={faMicrochip} />}>AI Model:</Typography>
-                <Select value={selectedModel} onChange={(_, newValue) => setSelectedModel(newValue!)} sx={{ minWidth: 200, bgcolor: 'rgba(255,255,255,0.05)', color: 'white' }}>
-                  <Option value="llama3.2:1b">Llama 3.2 (Fastest)</Option>
-                  <Option value="phi3:mini">Phi-3 Mini (Balanced)</Option>
-                  <Option value="llama3.1">Llama 3.1 (Smartest)</Option>
-                </Select>
-              </Box>
-
-              {isGenerating && quizQuestions.length === 0 ? (
-                <Stack alignItems="center" spacing={2} sx={{ mt: 10 }}>
-                  <CircularProgress size="lg" />
-                  <Typography textColor="white">AI is background-preparing your quiz...</Typography>
-                </Stack>
-              ) : quizIdx < quizQuestions.length ? (
-                <Stack spacing={3} sx={{ mt: 4 }}>
-                  <Typography level="h4" textColor="white">Question {quizIdx + 1} of {quizQuestions.length}</Typography>
-                  <Typography level="body-lg" sx={{ bgcolor: 'rgba(255,255,255,0.05)', p: 4, borderRadius: 'md', color: 'white', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    {quizQuestions[quizIdx].question}
-                  </Typography>
-                  <Input autoFocus placeholder="Type your answer..." value={userAnswer} onChange={(e) => setUserAnswer(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter' && !aiFeedback) checkAnswerWithAI(); }} disabled={!!aiFeedback} sx={{ p: 2 }} />
-                  {!aiFeedback ? (
-                    <Button onClick={checkAnswerWithAI} loading={isChecking} disabled={!userAnswer}>Check Answer</Button>
-                  ) : (
-                    <Stack spacing={3}>
-                      <Box sx={{ p: 3, borderRadius: 'md', bgcolor: 'rgba(0,0,0,0.2)', borderLeft: '4px solid lightblue' }}>
-                        <Typography sx={{ color: 'lightblue', textAlign: 'left' }}>{aiFeedback}</Typography>
-                      </Box>
-                      <Button color="success" onClick={nextQuestion}>Next Question</Button>
-                    </Stack>
-                  )}
-                </Stack>
-              ) : (
-                <Stack spacing={2} sx={{ mt: 10 }}>
-                  <Typography textColor="white" level="h4">All set! Questions generated.</Typography>
-                  <Button onClick={() => generateQuiz()}>Refresh Quiz</Button>
-                </Stack>
-              )}
-            </Box>
+            currentIdx < filteredFlashcards.length ? (
+    <React.Fragment>
+      <div className="flex justify-center items-center w-full">
+        <Progress value={progress} className="w-[60%]" />
+      </div>
+      {filteredFlashcards.length > 0 && (
+        <>
+          <h1 className="mt-10 w-[60%] text-white text-center">
+            {filteredFlashcards[currentIdx].question}
+          </h1>
+          {isLoadingOptions ? (
+            <Typography sx={{ mt: 4, color: "white" }}>Loading options...</Typography>
+          ) : (
+            <div className="mt-8 flex flex-col gap-3 w-[60%]">
+              {options.map((opt) => (
+                <Button
+                  key={opt}
+                  variant={selectedOption === opt ? "solid" : "outlined"}
+                  onClick={() => setSelectedOption(opt)}
+                >
+                  {opt}
+                </Button>
+              ))}
+            </div>
           )}
+        </>
+      )}
+      <div className="flex justify-center items-center mt-10 w-full gap-3 flex-wrap">
+        {feedback === "Correct!" || feedback === `Not quite. The correct answer is: ${correctAnswer}` ? (
+          <Button
+            color="success"
+            onClick={() => {
+              correct();
+              setFeedback(null);
+            }}
+          >
+            Next question
+          </Button>
+        ) : (
+          <Button
+            onClick={() => {
+              if (selectedOption == null) return;
+              const correctAnswer = filteredFlashcards[currentIdx]?.answer;
+              if (selectedOption === correctAnswer) {
+                setFeedback("Correct!");
+                setNumberCorrect(numberCorrect + 1);
+              } else {
+                setFeedback(`Not quite. The correct answer is: ${correctAnswer}`);
+                setNumberIncorrect(numberIncorrect + 1);
+              }
+            }}
+            disabled={selectedOption == null}
+          >
+            Check Answer
+          </Button>
+        )}
+      </div>
+      {feedback && (
+        <Typography
+          sx={{
+            mt: 2,
+            color: feedback === "Correct!" ? "success.plainColor" : "danger.plainColor",
+            fontWeight: 600,
+            textAlign: "center",
+          }}
+        >
+          {feedback}
+        </Typography>
+      )}
+    </React.Fragment>
+  ) : (
+    <div className="flex flex-col items-center">
+      <div className="flex flex-row justify-center items-center w-full">
+      <Lottie
+        animationData={confetti}
+        loop={true}
+        autoplay={true}
+        style={{ width: 900, height: 500 }}
+      />
+      <Lottie
+        animationData={confetti}
+        loop={true}
+        autoplay={true}
+        style={{ width: 900, height: 500 }}
+      />
+      </div>
+      <Typography level="h2" sx={{ color: 'white' }}>Session Complete!</Typography>
+      <Typography level="h3" sx={{ color: 'white' }}>You got {numberCorrect} out of {numberCorrect + numberIncorrect} questions correct.</Typography>
+      <Button onClick={learnMode} sx={{ mt: 2 }}>Restart</Button>
+    </div>
+  )
+            )
+            
+          }
         </Box>
       </Box>
 
